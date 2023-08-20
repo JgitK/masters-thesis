@@ -33,8 +33,11 @@ Option to load in from a downloaded CSV, or download from webpage via URL
 
 
 ```{r}
-data <- read_csv("/Users/jackson/Desktop/Thesis/Data/CES20_Common_OUTPUT_vv.csv")
-#data <- read_csv("https://dataverse.harvard.edu/api/access/datafile/4949558") ### run if csv not downloaded
+if (file.exists("/Users/jackson/Desktop/Thesis/Data/CES20_Common_OUTPUT_vv.csv")) {
+  data <- read_csv("/Users/jackson/Desktop/Thesis/Data/CES20_Common_OUTPUT_vv.csv")
+} else {
+  data <- read_csv("https://dataverse.harvard.edu/api/access/datafile/4949558")
+} ### run if csv not downloaded
 ```
 
 ### Transform data 
@@ -59,21 +62,14 @@ data_2 <- data %>%
          gender,
          educ,
          race,
-         #"CC20_303", #Household income (increase form last yr)
          marstat, #marital status
-        # presvote16post, #presidential vote in 2016 election
-        # ownhome, #home owner or not
-        #immstat, #immigration status
          faminc_new,#family annual income over past yr
          pew_churatd, #church attendance
          newsint, #political interest
          ideo5, #ideology 1 - very liberal, 2 - liberal, 3 - moderate, 4 - conservative, 5 - very conservative, 6 - don't know
-        # employ,
-        # inputstate,
-         #child18, #parent/guardian of child under 18
          pid7, # 7 point party ID
          commonweight,
-        commonpostweight
+         commonpostweight
          ) %>% 
 
   mutate(
@@ -82,10 +78,7 @@ data_2 <- data %>%
     intend_to_vote = ifelse(CC20_363 %in% c(1,4), 1, 0),
     did_you_vote = ifelse(CC20_401 == 5, 1, 0),
     validated_vote = ifelse(CL_2020gvm == 5, 0, 1),
-    over_reported_vote = ifelse(intend_to_vote == 1 
-                                #& validated_vote == 0
-                                , 1, 0
-                                ),
+    over_reported_vote = ifelse(intend_to_vote == 1 , 1, 0),
     
     over_reported_vote2 = ifelse(did_you_vote == 1, 1, 0),
     
@@ -101,31 +94,12 @@ data_2 <- data %>%
     
     is_politically_engaged = ifelse(social_media_engagement >= 1, 1, 0),
     
-    # Public engagement = posted comment or posted story link/video (followed political event?)
-    # Private engagement = saw story or forwarded a story
-    
-    ### OLD ###
-    # passive_user = ifelse(posted_comment == 0 & posted_story_link == 0 & forwarded_story == 0 & 
-    #                         (saw_story == 1 | followed_political_event == 1), 1, 0),
-    # 
-    # active_user = ifelse(posted_comment == 1 | posted_story_link == 1 | forwarded_story == 1
-    #                      , 1, 0),
-    ### OLD ###
-    
-    ### NEW ###
     active_user = ifelse(posted_comment == 1 | posted_story_link == 1 | followed_political_event == 1, 1, 0),
 
-passive_user = ifelse((posted_comment == 0 & posted_story_link == 0 & forwarded_story == 0) &
+    passive_user = ifelse((posted_comment == 0 & posted_story_link == 0 & forwarded_story == 0) &
                       (saw_story == 1 | followed_political_event == 1), 1, 0),
 
-
-
-    ### NEW ###
     
-    active_passive = as.factor(case_when( # active when 1, passive when 0
-      passive_user == 1 ~ 0,
-      active_user == 1 ~ 1
-    )),
     
     social_media_categories = case_when(
       saw_story == 1 ~ 1, # no social media usage (least active)
@@ -133,8 +107,6 @@ passive_user = ifelse((posted_comment == 0 & posted_story_link == 0 & forwarded_
       followed_political_event == 1 ~ 3, # active 1
       posted_comment == 1 ~ 4, # active 2
       posted_story_link == 1 ~ 5
-      #, # active 3 (most active)
-      #saw_story == 0 & forwarded_story == 0 & followed_political_event == 0 & posted_comment == 0 & posted_story_link == 0 ~ 0
     ),
     
     #Education
@@ -194,13 +166,11 @@ passive_user = ifelse((posted_comment == 0 & posted_story_link == 0 & forwarded_
       pid7 %in% c(1, 7) ~ 3
       ),
    
-   # ideo5 <- as.factor(ideo5),
     
-
-#Female
+    #Female
     female = ifelse(gender == 2, 1, 0),
 
- #Race
+    #Race
     White = ifelse(race == 1, 1, 0),
     Black = ifelse(race == 2, 1, 0),
     other_non_White = ifelse(!race %in% c(1, 2), 1, 0),
@@ -214,14 +184,11 @@ passive_user = ifelse((posted_comment == 0 & posted_story_link == 0 & forwarded_
 ```{r}
 View(nonvoters)
 vis_miss(data_2, warn_large_data = F)
-table(data_2$CC20_401)
-table(data_2$CL_2020gvm)
-table(data_2$church_attendance)
-table(data$pew_churatd)
+
 #prop.table(
   table(nonvoters$over_reported_vote)
- # )
 
+  #Subset to just over-reporters
 overreported <- data_2 %>% 
   filter(validated_vote == 0 & intend_to_vote == 1 & !is.na(CL_2020gvm))
 overreported
@@ -230,14 +197,13 @@ overreported
 ```
 
 
-### Delete rows with any NA values
+### Delete rows with NA values
 
 ```{r}
 table(nonvoters$did_you_vote)
 nonvoters <- data_2 %>% 
   filter(CL_2020gvm == 5 
          & !is.na(CC20_300d_6) & !is.na(CC20_363) & !is.na(CC20_401)
-         & !is.na(CC20_300d_6)
          ) 
 ```
 
@@ -259,18 +225,18 @@ nonvoters <- nonvoters %>%
 
 
 nonvoters$user_engagement_category = ifelse(nonvoters$user_engagement_score >= p50, 0, 1) # 0 = Active and 1 = Passive
-
-table(nonvoters$user_engagement_category)
 ```
 
 
-Confirmatory Factor Analysis
+### Confirmatory Factor Analysis
 
 ```{r}
 cfa <- 'latent_social_media_engagement =~ posted_story_link + posted_comment + saw_story + followed_political_event + forwarded_story'
 fit<- cfa(cfa, data=nonvoters)
 summary(fit, fit.measures=T)
 ```
+
+### Descriptive Statistics
 
 ```{r}
 categorical_vars <- list("is_politically_engaged",
@@ -443,34 +409,27 @@ nonvoters_engaged %>%
 ```
 
 ```{r}
+summarize_overreporters <- function(nonvoters, category) {
+  nonvoters %>%
+    group_by({{ category }}) %>% 
+    summarize(count = n(),
+              overreport = sum(over_reported_vote, na.rm = TRUE),
+              prop = overreport / count)
+}
 
+# Use the custom function for each category
+prop_overreporters <- lapply(categorical_vars, function(cat) {
+  summarize_overreporters(nonvoters, !!sym(cat))
+})
+
+prop_overreporters
 ```
 
-
-
-```{r}
-nonvoters %>% 
-  group_by(social_media_engagement) %>% 
-  summarize(count = n()) %>% 
-  mutate(prop = count/sum(count)*100) %>% 
-  ggplot(aes(x=social_media_engagement, y=prop))
-
-(prop.table(table(nonvoters$social_media_engagement))*100)
-
-str(nonvoters)
-```
 
 
 ### Proportion of over-reporters by social media engagement table
 
-```{r}
-nonvoters %>% 
-  group_by(active_passive) %>% 
-  summarize(over_report = mean(over_reported_vote, na.rm=TRUE))
 
-nonvoters %>% 
-  count(active_passive)
-```
 ```{r}
 active_passive_proportions <- nonvoters %>% 
   group_by(active_passive, over_reported_vote) %>% 
@@ -531,8 +490,6 @@ user_engagement_proportions <- nonvoters %>%
 user_engagement_proportions
 ```
 
-
-and plot these proportions...
 
 ```{r}
 sme_proportions <- nonvoters %>% 
@@ -623,7 +580,7 @@ Correlation matrices
 
 ```{r}
 matrix_independent_vars <- nonvoters %>% 
-  select(social_media_engagement, 
+  dplyr::select(social_media_engagement, 
          ideo5,
                  education,
                  age,
@@ -642,7 +599,7 @@ matrix
 corrplot(matrix, method = "color", order = "hclust")
 
 matrix_social_media <- nonvoters %>% 
-  select(posted_story_link,
+  dplyr::select(posted_story_link,
          posted_comment,
          saw_story,
          followed_political_event,
@@ -680,32 +637,7 @@ nonvoters <- nonvoters %>%
                  married,
                  #inputstate
                  ), as.factor)
-str(nonvoters)
 
-nonvoters_fac <- nonvoters %>% 
-  mutate_at(vars(over_reported_vote,
-                 is_politically_engaged,
-                 social_media_engagement,
-                 user_engagement_category,
-                 active_user,
-                 passive_user,
-                 posted_story_link,
-                 posted_comment,
-                 saw_story,
-                 followed_political_event,
-                 forwarded_story,
-                 active_passive,
-                 education,
-                 income,
-                 church_attendance,
-                 ideological_strength,
-                 political_interest,
-                 age_cat,
-                 White,
-                 Black,
-                 other_non_White,
-                 female,
-                 married), as.factor)
 ```
 
 
@@ -740,25 +672,23 @@ Hypothesis 1
 
 ### Politically engaged on social media over past 24 hours
   
-
-model_1 <- glm(over_reported_vote ~ as.factor(is_politically_engaged) #binary
+model_1 <- glm(over_reported_vote ~ as.factor(is_politically_engaged) 
                         +
-                          as.factor(education) + # categories
-                 as.factor(income) +#categories
-                 Black +#binary
-                 other_non_White + #binary
-                 married + #binary
+                          as.factor(education) + 
+                 as.factor(income) +
+                 Black +
+                 other_non_White + 
+                 married + 
                  as.factor(church_attendance) +
-                 as.factor(age_cat) +#categories
-                 as.factor(ideological_strength) + #categories
-                 female + #binary
+                 as.factor(age_cat) +
+                 as.factor(ideological_strength) + 
+                 female + 
                  as.factor(political_interest) 
                  ,
                  data = nonvoters, family = binomial
               # , weights=commonweight
                )
 
-summary(margins(model_1))
 model_1a <- glm(over_reported_vote ~ as.factor(is_politically_engaged) 
                         
                  ,
@@ -782,34 +712,20 @@ model_1_cts<- glm(over_reported_vote ~ as.factor(is_politically_engaged)
                  ,
                  data = nonvoters_cts, family = binomial)
 
-str(nonvoters_cts)
 
-str(nonvoters)
-table(nonvoters$is_politically_engaged)
 
-model_1a_u <- glm(over_reported_vote ~ as.factor(is_politically_engaged) 
-                        
-                 ,
-                 data = nonvoters, family = binomial)
-
-### when unweighted, results are significant, but when weighted, the results are insignificant.
 
 
 stargazer(model_1, model_1a, model_1_cts, type="text")
 stargazer(model_1_cts, type="text")
 
-# avg_marginal_effects_is_engaged <- margins(model_is_engaged)
-# avg_marginal_effects_5a_u <- margins(model_5a_u)
-# summary(avg_marginal_effects_is_engaged, type="text") ### <--- avg marginal effect: -0.0239
-
-
-
 
 ```
 
+Hypothesis 2
 
 ```{r}
-model_2 <- glm(over_reported_vote ~ as.factor(social_media_engagement) + # <---------
+model_2 <- glm(over_reported_vote ~ as.factor(social_media_engagement) + 
                  as.factor(education) + 
                  as.factor(income) +
                  Black +
@@ -824,32 +740,16 @@ model_2 <- glm(over_reported_vote ~ as.factor(social_media_engagement) + # <----
                data = nonvoters_engaged, family = binomial
                #, weights = commonweight
                ) 
-model_2_mfx <- logitmfx(over_reported_vote ~ as.factor(social_media_engagement) + # <---------
-                 as.factor(education) + 
-                 as.factor(income) +
-                 Black +
-                 other_non_White + 
-                 married + 
-                 as.factor(church_attendance) +
-                 as.factor(age_cat) +
-                 as.factor(ideological_strength) + 
-                 female + 
-                 as.factor(political_interest) 
-               ,  
-               data = nonvoters_engaged
-               #, weights = commonweight
-               ) 
-model_2_mfx
-summary(margins(model_2))
 
-model_2a <- glm(over_reported_vote ~ as.factor(social_media_engagement)  # <---------
+
+model_2a <- glm(over_reported_vote ~ as.factor(social_media_engagement)  
                 
                ,  
                data = nonvoters_engaged, family = binomial
                #, weights = commonweight
                ) 
 
-model_2_cts <- glm(over_reported_vote ~ social_media_engagement + # <---------
+model_2_cts <- glm(over_reported_vote ~ social_media_engagement + 
                  education +
                  faminc_new +
                  Black +
@@ -872,40 +772,6 @@ stargazer(model_2, model_2a, model_2_cts, type="text")
 
 Hypothesis 1 Unweighted
 
-```{r}
-
-
-
-model_2_cts_ols <- lm(intend_to_vote ~ social_media_engagement + # <---------
-                 education +
-                 income +
-                 Black +
-                 other_non_White +
-                 married +
-                   church_attendance +
-                 age_cat +
-                 ideological_strength +
-                 female +
-                 political_interest 
-                # partisan_strength 
-               ,  
-               data = nonvoters_cts_engaged
-               
-               ) 
-
-model_2a_cts_ols <- lm(intend_to_vote ~ social_media_engagement  # <---------
-                
-               ,  
-               data = nonvoters_cts_engaged
-               
-               ) 
-
-stargazer(model_2_u, model_2a_u, type="text")
-
-stargazer(model_2_cts_ols, model_2a_cts_ols, type="text")
-
-
-```
 
 
 ```{r}
@@ -1322,3 +1188,37 @@ summary(margins(model_6_cts_ols))
 stargazer(model_6_ols, model_6a_ols, model_6_cts_ols, type="text")
 ```
 
+```{r}
+
+
+
+model_2_cts_ols <- lm(intend_to_vote ~ social_media_engagement + # <---------
+                 education +
+                 income +
+                 Black +
+                 other_non_White +
+                 married +
+                   church_attendance +
+                 age_cat +
+                 ideological_strength +
+                 female +
+                 political_interest 
+                # partisan_strength 
+               ,  
+               data = nonvoters_cts_engaged
+               
+               ) 
+
+model_2a_cts_ols <- lm(intend_to_vote ~ social_media_engagement  # <---------
+                
+               ,  
+               data = nonvoters_cts_engaged
+               
+               ) 
+
+stargazer(model_2_u, model_2a_u, type="text")
+
+stargazer(model_2_cts_ols, model_2a_cts_ols, type="text")
+
+
+```
