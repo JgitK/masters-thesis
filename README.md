@@ -1,5 +1,1 @@
-# masters-thesis
-
-Introduction to Masters Thesis
-
-part 2
+### Welcome to my Master's Thesis!
