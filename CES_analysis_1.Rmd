@@ -5,42 +5,32 @@ date: "2023-07-14"
 output: html_document
 ---
 
-# CES 2020 Analysis
-
-In this analysis, I investigate "over-reporting intentions" among eligible voters, a phenomenon in which nonvoters report in surveys that they will vote, but never follow through in doing so. Leveraging the Cooperative Election Study (CES) survey data along with validated voter information, regression techniques are deployed to scrutinize how online political activity impacts the likelihood of overstating one's voting intentions. Preliminary results suggest that individuals active in political discourse on social media platforms exhibit a reduced tendency to over-report compared to those not active online. Moreover, a distinctive pattern emerges with conservatives appearing more prone to over-report than their liberal counterparts. This R markdown is geared towards a data-driven exploration, aiming to guide policy makers and digital campaign strategists in understanding voter behavior on online platforms. It's a stepping stone towards deeper insights into the nuances of online political engagement and its implications on reported voting intentions.
-
-### Reset code...
-
-```{r}
-remove(list = ls())
-```
-
-### Load in Libraries
+#### Load in Libraries
 
 ```{r,message=FALSE, warning=FALSE}
 library(tidyverse)
 library(visdat)
 library(lavaan)
+library(psych)
 library(corrplot)
 library(stargazer)
 library(margins)
 library(mfx)
 ```
 
-### Load in data
+#### Load in data
 
 ```{r}
 if (file.exists("/Users/jackson/Desktop/Thesis/Data/CES20_Common_OUTPUT_vv.csv")) { ## for me :)
   data <- read_csv("/Users/jackson/Desktop/Thesis/Data/CES20_Common_OUTPUT_vv.csv")
 } else {
-  data <- read_csv("https://dataverse.harvard.edu/api/access/datafile/4949558")
+  data <- read_csv("https://dataverse.harvard.edu/api/access/datafile/4949558") # WARNING: 188mb download.
 } 
 ```
 
-### Transform data - # Relevant variables subsetted from CES 2020 dataset, and re-coded/ to mirror variable specification from Ansolabehere and Hersh 2012. 
+### Transform data 
 
-
-
+Relevant variables subsetted from CES 2020 dataset, and re-coded/ to mirror variable specification from Ansolabehere and Hersh 2012. 
 ```{r}
 data_2 <- data %>% 
   dplyr::select(
@@ -50,12 +40,12 @@ data_2 <- data %>%
          CC20_363, #vote intention - 1 = yes definitely, 2 = probably, 3 = I already voted, 4 = I plan to vote before Nov 3rd, 5 = no, 6 = undecided
                       # Did you...
          CC20_300_1,  # use social media in the last 24h?
-         CC20_300d_1, #posted story link or video about politics?
-         CC20_300d_2, #posted comment about politics?
-         CC20_300d_3, #read a story or watched video about politics?
-         CC20_300d_4, #followed a political event?
-         CC20_300d_5, #forwarded a story video photo or link about politics to friend?
-         CC20_300d_6, #none of the above
+         CC20_300d_1, # post story link or video about politics?
+         CC20_300d_2, # post comment about politics?
+         CC20_300d_3, # read a story or watched video about politics?
+         CC20_300d_4, # follow a political event?
+         CC20_300d_5, # forward a story video photo or link about politics to friend?
+         CC20_300d_6, # none of the above
          birthyr,
          gender,
          educ,
@@ -98,14 +88,6 @@ data_2 <- data %>%
     passive_user = ifelse((posted_comment == 0 & posted_story_link == 0 & forwarded_story == 0) &
                       (saw_story == 1 | followed_political_event == 1), 1, 0),
 
-    
-    social_media_categories = case_when(
-      saw_story == 1 ~ 1, # no social media usage (least active)
-      forwarded_story == 1 ~ 2, # passive user
-      followed_political_event == 1 ~ 3, # active 1
-      posted_comment == 1 ~ 4, # active 2
-      posted_story_link == 1 ~ 5
-    ),
     
     #Education
     education = case_when(
@@ -179,60 +161,68 @@ data_2 <- data %>%
     )
 ```
 
+
+
+
+#### Visualize missing data 
+
 ```{r}
 vis_miss(data_2, warn_large_data = F)
 
-#prop.table(
-  table(nonvoters$over_reported_intention)
-#)
   ### Subset of solely over-reporters (intention)
 overreported <- data_2 %>% 
   filter(validated_vote == 0 & intend_to_vote == 1 & !is.na(CL_2020gvm))
-overreported
 ```
 
 
-### Delete rows with NA values
+
+
+#### Delete rows with NA values in key variables.
 
 ```{r}
 nonvoters <- data_2 %>% 
-  filter(CL_2020gvm == 5 
-         & !is.na(CC20_300d_6) & !is.na(CC20_363) & !is.na(CC20_401)
-         ) 
+  filter(CL_2020gvm == 5  & complete.cases(CC20_300d_6, CC20_363, CC20_401))
 ```
+
+
+
+
+#### Create user engagement categories - either active/passive 
 
 ```{r}
-### Create user engagement categories; either active/passive or active/moderate/passive
+### 50th percentile engagement score
 
 nonvoters <- nonvoters %>% 
-  mutate(user_engagement_score = saw_story + 2*followed_political_event + 3*forwarded_story + 3*posted_comment  + 4*posted_story_link)
-
-p50 <- quantile(nonvoters$user_engagement_score, 0.5, na.rm=T)
-#p25 <- quantile(nonvoters$user_engagement_score, 0.25, na.rm=T)
-#p75 <- quantile(nonvoters$user_engagement_score, 0.75, na.rm=T)
-
-### Categorize users into low, medium, and high activity groups
-# nonvoters <- nonvoters %>% 
-#   mutate(user_engagement_category = case_when(
-#     user_engagement_score <= p25 ~ 1,
-#     user_engagement_score > p25 & user_engagement_score <= p75 ~ 2,
-#     user_engagement_score > p75 ~ 3
-#   ))
-
-
-nonvoters$user_engagement_category = ifelse(nonvoters$user_engagement_score >= p50, 0, 1) # 0 = Active and 1 = Passive
+  mutate(user_engagement_score = saw_story + 
+           2*followed_political_event + 
+           3*forwarded_story + 3*posted_comment + 
+           4*posted_story_link,
+         
+         #If user is in bottom 50th percentile then passive, otherwise active
+         user_engagement_category = ifelse(user_engagement_score >= quantile(user_engagement_score, 0.5, na.rm=T), 0, 1)
+         )
 ```
 
 
-### Confirmatory Factor Analysis
+
+
+#### Confirmatory Factor Analysis
 
 ```{r}
 cfa <- 'latent_social_media_engagement =~ posted_story_link + posted_comment + saw_story + followed_political_event + forwarded_story'
 fit<- cfa(cfa, data=nonvoters)
 summary(fit, fit.measures=T)
+
+### All variables are positive indicators of social media engagement
+
+alpha(nonvoters[, c("posted_story_link", "posted_comment", "saw_story", "followed_political_event", "forwarded_story")])
+
+### Raw alphas range from ~0.66-0.72 indicating stable internal consistency.
 ```
 
-### Descriptive Statistics Tables
+
+
+#### Descriptive Statistics Tables
 
 ```{r}
 categorical_vars <- list("is_politically_engaged",
@@ -267,7 +257,9 @@ stats_list
 ```
 
 
-### Proportion of over-reporters by category
+
+
+#### Proportion of over-reporters by category
 
 ```{r}
 summarize_overreporters <- function(nonvoters, category) {
@@ -287,92 +279,54 @@ prop_overreporters
 
 
 
-### Proportion of over-reporters by social media engagement figure
 
+
+#### Proportion of over-reporters by social media engagement figure
 
 ```{r}
-is_politically_engaged_proportions <- nonvoters %>% 
-  group_by(is_politically_engaged, over_reported_intention) %>% 
-  summarize(count = n(), .groups = "drop") %>% 
-  mutate(over_reported_intention = ifelse(over_reported_intention == 1, "Yes", "No")) %>% 
-  mutate(over_reported_intention = factor(over_reported_intention, levels = c("No", "Yes"))) %>%
-  group_by(is_politically_engaged) %>% 
-  mutate(proportion = count/sum(count)) %>% 
-  ungroup() %>% 
-  
-  ggplot(aes(x = is_politically_engaged, y = proportion, fill = over_reported_intention)) +
-  geom_bar(stat = "identity", position = "stack") +
-  scale_fill_grey(name = "Over-reported vote") +
-  xlab("is politically engaged?") +
-  ylab("Proportion") +
-  theme_minimal() +
-  ggtitle("Proportion of Over-report by Political Engagement on Social Media")
+generate_proportions_fig <- function(data, group_col, x_label, title) {
+  data %>% 
+    group_by(!!sym(group_col), over_reported_intention) %>%
+    summarize(count = n(), .groups = "drop") %>%
+    mutate(over_reported_intention = ifelse(over_reported_intention == 1, "Yes", "No")) %>%
+    mutate(over_reported_intention = factor(over_reported_intention, levels = c("No", "Yes"))) %>%
+    group_by(!!sym(group_col)) %>%
+    mutate(proportion = count / sum(count)) %>%
+    ungroup() %>%
+    
+    ggplot(aes(x = !!sym(group_col), y = proportion, fill = over_reported_intention)) +
+    geom_bar(stat = "identity", position = "stack") +
+    scale_fill_grey(name = "Over-reported vote") +
+    xlab(x_label) +
+    ylab("Proportion") +
+    theme_minimal() +
+    ggtitle(title)
+}
+
+is_politically_engaged_proportions <- generate_proportions_fig(nonvoters, 
+                                     "is_politically_engaged", 
+                                     "Is politically engaged?", 
+                                     "Proportion of Over-report by Political Engagement on Social Media")
 is_politically_engaged_proportions
-```
 
-```{r}
-user_engagement_proportions <- nonvoters %>% 
-  group_by(user_engagement_category, over_reported_intention) %>% 
-  summarize(count = n(), .groups = "drop") %>% 
-  mutate(over_reported_intention = ifelse(over_reported_intention == 1, "Yes", "No")) %>% 
-  mutate(over_reported_intention = factor(over_reported_intention, levels = c("No", "Yes"))) %>%
-  group_by(user_engagement_category) %>% 
-  mutate(proportion = count/sum(count)) %>% 
-  ungroup() %>% 
-  
-  ggplot(aes(x = user_engagement_category, y = proportion, fill = over_reported_intention)) +
-  geom_bar(stat = "identity", position = "stack") +
-  scale_fill_grey(name = "Over-reported vote") +
-  xlab("is politically engaged?") +
-  ylab("Proportion") +
-  theme_minimal() +
-  ggtitle("Proportion of Over-report by Political Engagement on Social Media")
+user_engagement_proportions <- generate_proportions_fig(nonvoters, 
+                                  "user_engagement_category", 
+                                  "User Engagement Category", 
+                                  "Proportion of Over-report by User Engagement")
 user_engagement_proportions
-```
 
-
-```{r}
-sme_proportions <- nonvoters %>% 
-  group_by(social_media_engagement, over_reported_intention) %>% 
-  summarize(count = n(), .groups = "drop") %>%
-  mutate(over_reported_intention = ifelse(over_reported_intention == 1, "Yes", "No")) %>% 
-  mutate(over_reported_intention = factor(over_reported_intention, levels = c("No", "Yes"))) %>%
-  group_by(social_media_engagement) %>% 
-  mutate(proportion = count / sum(count)) %>% 
-  ungroup() %>% 
-  
-  ggplot(aes(x = social_media_engagement, y = proportion, fill = over_reported_intention)) +
-  geom_bar(stat = "identity", position = "stack") +
-  scale_fill_grey(name = "Over-Reported Vote") +
-  xlab("Social Media Engagement") +
-  ylab("Proportion") +
-  theme_minimal() +
-  ggtitle("Proportion of Over-report by Social Media Engagement")
-
+sme_proportions <- generate_proportions_fig(nonvoters, 
+                  "social_media_engagement", 
+                  "Social Media Engagement", 
+                  "Proportion of Over-report by Social Media Engagement")
 sme_proportions
-```
 
-Doesn't seem to be much of a difference in over-reporting between users across engagement categories
-
-```{r}
-ideo_proportions <- nonvoters %>% 
-  group_by(ideo5, over_reported_intention) %>% 
-  summarize(count = n(), .groups = "drop") %>%
-  mutate(over_reported_intention = ifelse(over_reported_intention == 1, "Yes", "No")) %>% 
-  mutate(over_reported_intention = factor(over_reported_intention, levels = c("No", "Yes"))) %>%
-  group_by(ideo5) %>% 
-  mutate(proportion = count / sum(count)) %>% 
-  ungroup() %>% 
-  
-  ggplot(aes(x = ideo5, y = proportion, fill = over_reported_intention)) +
-  geom_bar(stat = "identity", position = "stack") +
-  scale_fill_grey(name = "Over-Reported Vote") +
-  xlab("Ideology") +
-  ylab("Proportion") +
-  theme_minimal() +
-  ggtitle("Proportion of Over-report by Ideology")
-
+ideo_proportions <- generate_proportions_fig(nonvoters, 
+                   "ideo5", 
+                   "Ideology", 
+                   "Proportion of Over-report by Ideology")
 ideo_proportions
+
 ```
 
 
@@ -417,12 +371,14 @@ over_report_engaged
 # very liberals, liberals, and moderates, but conservative groups also have less total over reporters
 ```
 
-Correlation matrices
+
+
+#### Correlation matrices
 
 ```{r}
 matrix_independent_vars <- nonvoters %>% 
   dplyr::select(social_media_engagement, 
-         ideo5,
+                 ideo5,
                  education,
                  age,
                  income,
@@ -436,7 +392,6 @@ matrix_independent_vars <- nonvoters %>%
 
 
 matrix <- cor(na.omit(matrix_independent_vars), use = "complete.obs")
-matrix
 corrplot(matrix, method = "color", order = "hclust")
 
 matrix_social_media <- nonvoters %>% 
@@ -453,10 +408,11 @@ corrplot(matrix_2, method="color", order="hclust")
 ### Positive correlations - Education and Income, Partisan and Ideological strength, Political interest and SME, Married and Income
 ### Negative correlations - Church attendance and Partisan strength, Education and age
 
-
 ```
 
-### Modelling
+
+
+#### Modelling
 
 ```{r}
 #Convert variables to factors
@@ -481,6 +437,7 @@ nonvoters <- nonvoters %>%
 
 
 ```{r}
+### Create sub-groups
 
 nonvoters_engaged <- nonvoters %>% 
   filter(user_engagement_score != 0)
@@ -490,30 +447,33 @@ nonvoters_disengaged <- nonvoters %>%
 
 nonvoters_cts <- nonvoters %>% 
   filter(
-    #user_engagement_score != 0,
-    ideo5 != 6, 
+         ideo5 != 6, 
          faminc_new != 17, 
-         church_attendance != 7)
+         church_attendance != 7
+         )
 
 nonvoters_cts_engaged <- nonvoters %>% 
   filter(
-    user_engagement_score != 0,
-    ideo5 != 6, 
+         user_engagement_score != 0,
+         ideo5 != 6, 
          faminc_new != 17, 
-         church_attendance != 7)
+         church_attendance != 7
+         )
 
 ```
 
 
-Hypothesis 1
+
+
+
+#### Hypothesis 1: Political activity on social media is positively associated with over-reporting vote intentions when compared to those who are not active
 
 ```{r}
 
 ### Politically engaged on social media over past 24 hours
   
-model_1 <- glm(over_reported_intention ~ as.factor(is_politically_engaged) 
-                        +
-                          as.factor(education) + 
+model_1 <- glm(over_reported_intention ~ as.factor(is_politically_engaged) +
+                 as.factor(education) + 
                  as.factor(income) +
                  Black +
                  other_non_White + 
@@ -525,17 +485,13 @@ model_1 <- glm(over_reported_intention ~ as.factor(is_politically_engaged)
                  as.factor(political_interest) 
                  ,
                  data = nonvoters, family = binomial
-              # , weights=commonweight
                )
 
-model_1a <- glm(over_reported_intention ~ as.factor(is_politically_engaged) 
-                        
-                 ,
+model_1a <- glm(over_reported_intention ~ as.factor(is_politically_engaged) ,
                  data = nonvoters, family = binomial
-               # , weights=commonweight
                 )
 
-model_1_cts<- glm(over_reported_intention ~ as.factor(is_politically_engaged) 
+model_1_cts<- lm(as.numeric(over_reported_intention) ~ as.factor(is_politically_engaged) 
                         +
                           education +
                  faminc_new +
@@ -547,9 +503,9 @@ model_1_cts<- glm(over_reported_intention ~ as.factor(is_politically_engaged)
                  ideological_strength +
                  female +
                  political_interest 
-                # partisan_strength
                  ,
-                 data = nonvoters_cts, family = binomial)
+                 data = nonvoters_cts, weights = commonweight
+                 )
 
 
 
@@ -561,34 +517,34 @@ stargazer(model_1_cts, type="text")
 
 ```
 
-Hypothesis 2
+
+
+
+
+#### Hypothesis 2: Passive social media users are more likely to over-report their voting intentions than their more active counterparts
 
 ```{r}
 model_2 <- glm(over_reported_intention ~ as.factor(social_media_engagement) + 
-                 as.factor(education) + 
-                 as.factor(income) +
+                 education + 
+                 income +
                  Black +
                  other_non_White + 
                  married + 
-                 as.factor(church_attendance) +
-                 as.factor(age_cat) +
-                 as.factor(ideological_strength) + 
+                 church_attendance +
+                 age_cat +
+                 ideological_strength + 
                  female + 
-                 as.factor(political_interest) 
+                 political_interest 
                ,  
                data = nonvoters_engaged, family = binomial
-               #, weights = commonweight
                ) 
 
 
-model_2a <- glm(over_reported_intention ~ as.factor(social_media_engagement)  
-                
-               ,  
+model_2a <- glm(over_reported_intention ~ as.factor(social_media_engagement),
                data = nonvoters_engaged, family = binomial
-               #, weights = commonweight
                ) 
 
-model_2_cts <- glm(over_reported_intention ~ social_media_engagement + 
+model_2_cts <- lm(as.numeric(over_reported_intention) ~ social_media_engagement + 
                  education +
                  faminc_new +
                  Black +
@@ -599,44 +555,44 @@ model_2_cts <- glm(over_reported_intention ~ social_media_engagement +
                  ideological_strength +
                  female +
                  political_interest 
-                # partisan_strength 
                ,  
-               data = nonvoters_cts_engaged, family = binomial
-               
+               data = nonvoters_cts_engaged, weights = commonweight
                ) 
 
 stargazer(model_2, model_2a, model_2_cts, type="text")
 
 ```
 
-Hypothesis 1 Unweighted
 
 
+
+#### Robustness check for individual actions on social media
 
 ```{r}
 model_3 <- glm(over_reported_intention ~ as.factor(saw_story) + as.factor(followed_political_event) + as.factor(posted_story_link) + as.factor(posted_comment) + as.factor(forwarded_story) +
-                 as.factor(education) + 
-                 as.factor(income) +
+                 education + 
+                 income +
                  Black +
                  other_non_White + 
                  married + 
-                 as.factor(church_attendance) +
-                 as.factor(age_cat) +
-                 as.factor(ideological_strength) + 
+                 church_attendance +
+                 age_cat +
+                 ideological_strength + 
                  female + 
-                 as.factor(political_interest) 
+                 political_interest 
                ,  
                data = nonvoters, family = binomial
-             ) 
+               ) 
 
-model_3a <- glm(over_reported_intention ~ as.factor(saw_story) + as.factor(followed_political_event) + as.factor(posted_story_link) + as.factor(posted_comment) + as.factor(forwarded_story)
+model_3a <- glm(over_reported_intention ~ as.factor(saw_story) + as.factor(followed_political_event) + 
+                  as.factor(posted_story_link) + as.factor(posted_comment) + as.factor(forwarded_story)
                ,  
                data = nonvoters, family = binomial
-             ) 
+               ) 
 
-model_3_cts <- glm(over_reported_intention ~ 
-                   as.factor(saw_story) + as.factor(followed_political_event) + 
-                   as.factor(posted_story_link) + as.factor(posted_comment) + as.factor(forwarded_story) +
+model_3_cts <- lm(as.numeric(over_reported_intention) ~ 
+                 as.factor(saw_story) + as.factor(followed_political_event) + 
+                 as.factor(posted_story_link) + as.factor(posted_comment) + as.factor(forwarded_story) +
                  education +
                  faminc_new +
                  Black +
@@ -647,30 +603,12 @@ model_3_cts <- glm(over_reported_intention ~
                  ideological_strength +
                  female +
                  political_interest,
-               data = nonvoters_cts, family = binomial
+               data = nonvoters_cts, weights = commonweight
              ) 
-
-model_posted <- glm(over_reported_intention ~ 
-                    
-                   as.factor(posted_story_link) * as.factor(ideo5) +
-                 education +
-                 faminc_new +
-                 Black +
-                 other_non_White +
-                 married +
-                 church_attendance +
-                 age_cat +
-                 ideological_strength +
-                 female +
-                 political_interest,
-               data = nonvoters, family = binomial)
-
-stargazer(model_posted, type="text")
 
 stargazer(model_3, model_3a, model_3_cts, type="text")
 
 ```
-
 
 ```{r}
 model_4 <- glm(over_reported_intention ~ as.factor(passive_user) + 
@@ -689,16 +627,14 @@ model_4 <- glm(over_reported_intention ~ as.factor(passive_user) +
               
                )
 
-summary(margins(model_4))
-model_4a <- glm(over_reported_intention ~ as.factor(passive_user), data = nonvoters_engaged, family=binomial
-                
+
+model_4a <- glm(over_reported_intention ~ as.factor(passive_user), 
+                data = nonvoters_engaged, family=binomial
                 )
 
-model_4_cts <- glm(over_reported_intention ~ as.factor(passive_user) + 
+model_4_cts <- lm(as.numeric(over_reported_intention) ~ as.factor(passive_user) + 
                  education +
-                 
                  faminc_new +
-                 #White +
                  Black +
                  other_non_White +
                  married +
@@ -707,46 +643,85 @@ model_4_cts <- glm(over_reported_intention ~ as.factor(passive_user) +
                  female +
                  ideological_strength +
                  political_interest 
-                 #partisan_strength +
-                 
                ,  
-               data = nonvoters_cts_engaged, family = binomial
-              
+               data = nonvoters_cts_engaged, weights = commonweight
                )
 
 stargazer(model_4, model_4a, model_4_cts, type="text")
 ```
 
+```{r}
+model_4_robust <- glm(over_reported_intention ~ as.factor(user_engagement_category) + 
+                      education + 
+                      income +
+                      Black +
+                      other_non_White + 
+                      married + 
+                      church_attendance +
+                      age_cat +
+                      ideological_strength + 
+                      female + 
+                      political_interest 
+                      ,
+                     data = nonvoters_engaged, family = binomial
+                
+                     )
 
+model_4a_robust <- glm(over_reported_intention ~ as.factor(user_engagement_category) 
+                 ,
+                 data = nonvoters_engaged, family = binomial
+                
+                )
+
+model_4_robust_cts <- lm(as.numeric(over_reported_intention) ~ as.factor(user_engagement_category) +
+                         education + 
+                         faminc_new +
+                         Black +
+                         other_non_White + 
+                         married + 
+                         church_attendance +
+                         age_cat +
+                         ideological_strength + 
+                         female + 
+                         political_interest 
+                         ,
+                         data = nonvoters_cts_engaged
+                         , weights=commonweight
+                         )
+
+stargazer(model_4_robust, model_4a_robust, model_4_robust_cts, type="text")
+```
+
+
+
+
+
+#### Hypothesis 3: Due to the vastness in political opinions between liberals and conservatives in 2020, there will be significant variance in over-reporting behavior between political ideology affiliations
 
 ```{r}
-model_6 <- glm(over_reported_intention ~ as.factor(social_media_engagement) * as.factor(ideo5) +  #<--------------
-                   as.factor(education) + 
-                 as.factor(income) +
+model_5 <- glm(over_reported_intention ~ as.factor(social_media_engagement) * as.factor(ideo5) + 
+                 education + 
+                 income +
                  Black +
                  other_non_White + 
                  married + 
-                 as.factor(church_attendance) +
-                 as.factor(age_cat) +
-                 #as.factor(ideological_strength) + 
+                 church_attendance +
+                 age_cat +
+                 #ideological_strength + ### commented out due to collinearity with ideo5
                  female + 
-                 as.factor(political_interest) 
-              # + as.factor(partisan_strength)
+                 political_interest
                  ,
                  data = nonvoters_engaged, family = binomial
                )
 
-model_6a <- glm(over_reported_intention ~ as.factor(social_media_engagement) * as.factor(ideo5) 
+model_5a <- glm(over_reported_intention ~ as.factor(social_media_engagement) * as.factor(ideo5) 
                ,  
                  data = nonvoters, family = binomial
                )
 
-margins(model_6)
-
-model_6_cts <- glm(over_reported_intention ~ social_media_engagement * ideo5 +
-                      education +
+model_5_cts <- lm(as.numeric(over_reported_intention) ~ social_media_engagement * ideo5 +
+                 education +
                  faminc_new + 
-                 #White + 
                  Black + 
                  other_non_White +
                  married +
@@ -754,121 +729,38 @@ model_6_cts <- glm(over_reported_intention ~ social_media_engagement * ideo5 +
                  age_cat +
                  ideological_strength +
                  female +
-                 political_interest# +
-                # partisan_strength
-                  ,  
-                 data = nonvoters_cts_engaged, family = binomial)
+                 political_interest
+                 ,  
+                 data = nonvoters_cts_engaged, weights = commonweight
+                 )
 
-summary(model_6)
-
-summary(margins(model_6))
-
-stargazer(model_6, model_6a, model_6_cts, type="text")
-```
-
-```{r}
-table(nonvoters_cts_engaged$faminc_new)
-model_4_robust_cts <- glm(over_reported_intention ~ as.factor(user_engagement_category) #binary
-                        +
-                          education + # categories
-                 faminc_new +#categories
-                 Black +#binary
-                 other_non_White + #binary
-                 married + #binary
-                 church_attendance +
-                 age_cat +#categories
-                 ideological_strength + #categories
-                 female + #binary
-                 political_interest 
-                 #+ #categories
-                 #partisan_strength #categories
-                 ,
-                 data = nonvoters_cts_engaged, family = binomial
-                #, weights=commonweight
-                )
-
-#summary(margins(model_4_u_robust))
-
-model_4a_robust <- glm(over_reported_intention ~ as.factor(user_engagement_category) #binary
-                 ,
-                 data = nonvoters_engaged, family = binomial
-                #, weights=commonweight
-                )
-
-model_4_robust <- glm(over_reported_intention ~ as.factor(user_engagement_category) #binary
-                      +  as.factor(education) + 
-                 as.factor(income) +
-                 Black +
-                 other_non_White + 
-                 married + 
-                 as.factor(church_attendance) +
-                 as.factor(age_cat) +
-                 as.factor(ideological_strength) + 
-                 female + 
-                 as.factor(political_interest)  
-                 ,
-                 data = nonvoters_engaged, family = binomial
-                
-                )
-
-levels(nonvoters_engaged$user_engagement_category)
-str(model_4_robust)
-summary(margins(model_4_robust))
-                
-str(nonvoters_engaged$user_engagement_category)
-stargazer(model_4_robust, model_4a_robust, model_4_robust_cts, type="text")
+stargazer(model_5, model_5a, model_5_cts, type="text")
 ```
 
 
-```{r}
-model_5_robust <- glm(over_reported_intention ~ as.factor(is_politically_engaged) * as.factor(ideo5) + 
-                 as.factor(education) + 
-                 as.factor(income) +
-                 Black +
-                 other_non_White + 
-                 married + 
-                 as.factor(age_cat) +
-                 as.factor(ideological_strength) + 
-                 female + 
-                 as.factor(political_interest) + 
-                 as.factor(partisan_strength),
-                 data = nonvoters, family = binomial
-               
-               )
-model_5a_robust <- glm(over_reported_intention ~ as.factor(is_politically_engaged) * as.factor(ideo5) , 
-                 data = nonvoters, family = binomial
-               
-               )
 
 
-
-summary(margins(model_5_robust))
-stargazer(model_5_robust, model_5a_robust, type="text")
-```
-
-Output
+#### Output
 
 ```{r}
-
-models <- list(model_1, model_2, model_4, model_4_robust, model_6)
-models_cts <- list(model_1_cts, model_2_cts, model_4_cts, model_4_robust_cts, model_6_cts)
-models_no_covariates <- list(model_1a, model_2a, model_3a, model_4a, model_4a_robust, model_6a)
-#models_no_covariates_unweighted <- list(model_1a_u, model_2a_u, model_3a_u, model_4a_u, model_4a_u, model_6a_u)
+models <- list(model_1, model_2, model_4, model_4_robust, model_5)
+models_cts <- list(model_1_cts, model_2_cts, model_4_cts, model_4_robust_cts, model_5_cts)
+models_no_covariates <- list(model_1a, model_2a, model_3a, model_4a, model_4a_robust, model_5a)
 
 stargazer(models, type="text")
 stargazer(models_cts, type="text")
 stargazer(models_no_covariates, type="text")
-#stargazer(models_no_covariates_unweighted, type="text")
 ```
 
-Marginal Effects
+
+
+
+#### Marginal Effects
 
 ```{r}
-
 margins_models <- lapply(models, function(x) summary(margins(x)))
 margins_no_covariates <- lapply(models_no_covariates, function(x) summary(margins(x)))
 margins_cts <- lapply(models_cts, function(x) summary(margins(x)))
-#margins_no_covariates_unweighted <- lapply(models_no_covariates_unweighted, function(x) summary(margins(x)))
 
 for (i in 1:length(margins_models)) {
   print(margins_models[[i]])
@@ -881,155 +773,51 @@ for (i in 1:length(margins_cts)) {
 for (i in 1:length(margins_no_covariates)) {
   print(margins_no_covariates[[i]])
 }
-
-# for (i in 1:length(margins_no_covariates_unweighted)) {
-#   print(margins_no_covariates_unweighted[[i]])
-# }
-
-# compute_and_print_summaries <- function(model_list) {
-#   # Compute margins and summaries
-#   margins_summaries <- lapply(model_list, function(x) summary(margins(x)))
-#   
-#   # Print each summary
-#   for (i in 1:length(margins_summaries)) {
-#     print(margins_summaries[[i]])
-#   }
-# }
-# 
-# # Use this function on your lists of models
-# compute_and_print_summaries(models)
-# compute_and_print_summaries(models_unweighted)
-# compute_and_print_summaries(models_no_covariates)
-# compute_and_print_summaries(models_no_covariates_unweighted)
-
 ```
-Active user robustness
 
+#### Robustness 
 
 ```{r}
 
-#Replicating logit model from Ansolabehere and Hersh 2012, but with vote intention
+#Running model w/ just controls included
 model_robust <- glm(over_reported_intention ~
                  education +
-                 
                  income + 
-                 #White + 
                  Black + 
                  other_non_White +
                  church_attendance +
-                   age_cat +
+                 age_cat +
                  female +
-                   ideological_strength +
+                 ideological_strength +
                  political_interest 
                  ,
                  data = nonvoters, family = binomial
-               
-               )
+                    )
 
-#Exact replic of model, only using 2020 data instead of 2008
-model_robust2 <- glm(over_reported_vote ~
-                 education +
-                 
-                 income + 
-                 #White + 
-                 Black + 
-                 other_non_White +
-                 church_attendance +
-                   age_cat +
-                 female +
-                   ideological_strength +
-                 political_interest 
-                 ,
-                 data = nonvoters, family = binomial
-               )
-
-table(nonvoters$over_reported_vote)
-
+#Replicating dependent variable from Ansolabehere and Hersh 2012 for post-hoc analysis
 model_robust_ols <- lm(did_you_vote ~
                  education +
-                 
                  income + 
-                 #White + 
                  Black + 
                  other_non_White +
                  church_attendance +
-                   age_cat +
+                 age_cat +
                  female +
-                   ideological_strength +
+                 ideological_strength +
                  political_interest 
                  ,
                  data = nonvoters, weights=commonpostweight
                
-               )
-model_robust2_ols <- lm(did_you_vote ~
-                 education +
-                 
-                 income + 
-                 #White + 
-                 Black + 
-                 other_non_White +
-                 church_attendance +
-                   age_cat +
-                 female +
-                   ideological_strength +
-                 political_interest 
-                 ,
-                 data = nonvoters, weights = commonpostweight
-               
-               )
+                       )
 
-stargazer(model_robust, model_robust2, type="text")
-stargazer(model_robust, model_robust2, model_robust_ols, model_robust2_ols, type="text")
-summary(margins(model_robust2))
+
+stargazer(model_robust, model_robust_ols, type="text")
+stargazer(model_robust, model_robust_ols, type="text")
+summary(margins(model_robust_ols))
 ```
 
 ```{r}
-model_6_ols <- lm(intend_to_vote ~ as.factor(social_media_engagement) * as.factor(ideo5) +  
-                 as.factor(education) + 
-                 as.factor(income) +
-                 Black +
-                 other_non_White + 
-                 married + 
-                 as.factor(church_attendance) +
-                 as.factor(age_cat) +
-                 as.factor(ideological_strength) + 
-                 female + 
-                 as.factor(political_interest) 
-                 ,
-                 data = nonvoters_engaged, weights = commonweight
-               )
-
-model_6a_ols <- lm(intend_to_vote ~ as.factor(social_media_engagement) * as.factor(ideo5) 
-               ,  
-                 data = nonvoters, weights = commonweight
-               )
-
-margins(model_6)
-
-model_6_cts_ols <- lm(intend_to_vote ~ social_media_engagement * ideo5 +
-                      education +
-                 faminc_new + 
-                 #White + 
-                 Black + 
-                 other_non_White +
-                 married +
-                 church_attendance +
-                 age_cat +
-                 ideological_strength +
-                 female +
-                 political_interest
-                  ,  
-                 data = nonvoters_cts_engaged, weights = commonweight)
-
-summary(margins(model_6_cts_ols))
-stargazer(model_6_ols, model_6a_ols, model_6_cts_ols, type="text")
-```
-
-```{r}
-
-
-
-model_2_cts_ols <- lm(intend_to_vote ~ social_media_engagement + # <---------
+model_2_cts_ols <- lm(intend_to_vote ~ social_media_engagement + 
                  education +
                  income +
                  Black +
@@ -1047,15 +835,12 @@ model_2_cts_ols <- lm(intend_to_vote ~ social_media_engagement + # <---------
                ) 
 
 model_2a_cts_ols <- lm(intend_to_vote ~ social_media_engagement 
-                
-               ,  
-               data = nonvoters_cts_engaged
+                       ,  
+                       data = nonvoters_cts_engaged
                
-               ) 
+                       ) 
 
 stargazer(model_2_cts_ols, model_2a_cts_ols, type="text")
-
-
 ```
 
 
