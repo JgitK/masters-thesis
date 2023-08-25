@@ -2,7 +2,7 @@
 title: "CES_analysis_Final"
 author: "Jackson"
 date: "2023-07-14"
-output: html_document
+output: github_document
 ---
 
 #### Load in Libraries
@@ -468,7 +468,7 @@ nonvoters_cts_engaged <- nonvoters %>%
 
 #### Hypothesis 1: Political activity on social media is positively associated with over-reporting vote intentions when compared to those who are not active
 
-```{r}
+```{r, results='hide'}
 
 ### Politically engaged on social media over past 24 hours
   
@@ -523,7 +523,7 @@ stargazer(model_1_cts, type="text")
 
 #### Hypothesis 2: Passive social media users are more likely to over-report their voting intentions than their more active counterparts
 
-```{r}
+```{r, results='hide'}
 model_2 <- glm(over_reported_intention ~ as.factor(social_media_engagement) + 
                  education + 
                  income +
@@ -568,7 +568,7 @@ stargazer(model_2, model_2a, model_2_cts, type="text")
 
 #### Robustness check for individual actions on social media
 
-```{r}
+```{r, results='hide'}
 model_3 <- glm(over_reported_intention ~ as.factor(saw_story) + as.factor(followed_political_event) + as.factor(posted_story_link) + as.factor(posted_comment) + as.factor(forwarded_story) +
                  education + 
                  income +
@@ -610,7 +610,7 @@ stargazer(model_3, model_3a, model_3_cts, type="text")
 
 ```
 
-```{r}
+```{r, results='hide'}
 model_4 <- glm(over_reported_intention ~ as.factor(passive_user) + 
                  as.factor(education) + 
                  as.factor(income) +
@@ -650,7 +650,7 @@ model_4_cts <- lm(as.numeric(over_reported_intention) ~ as.factor(passive_user) 
 stargazer(model_4, model_4a, model_4_cts, type="text")
 ```
 
-```{r}
+```{r, results='hide'}
 model_4_robust <- glm(over_reported_intention ~ as.factor(user_engagement_category) + 
                       education + 
                       income +
@@ -698,7 +698,7 @@ stargazer(model_4_robust, model_4a_robust, model_4_robust_cts, type="text")
 
 #### Hypothesis 3: Due to the vastness in political opinions between liberals and conservatives in 2020, there will be significant variance in over-reporting behavior between political ideology affiliations
 
-```{r}
+```{r, results='hide'}
 model_5 <- glm(over_reported_intention ~ as.factor(social_media_engagement) * as.factor(ideo5) + 
                  education + 
                  income +
@@ -777,7 +777,7 @@ for (i in 1:length(margins_no_covariates)) {
 
 #### Robustness 
 
-```{r}
+```{r, results='hide'}
 
 #Running model w/ just controls included
 model_robust <- glm(over_reported_intention ~
@@ -816,7 +816,7 @@ stargazer(model_robust, model_robust_ols, type="text")
 summary(margins(model_robust_ols))
 ```
 
-```{r}
+```{r, results='hide'}
 model_2_cts_ols <- lm(intend_to_vote ~ social_media_engagement + 
                  education +
                  income +
