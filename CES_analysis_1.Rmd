@@ -5,6 +5,11 @@ date: "2023-07-14"
 output: github_document
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.path = "figures/")
+```
+
+
 #### Load in Libraries
 
 ```{r,message=FALSE, warning=FALSE}
@@ -276,8 +281,6 @@ prop_overreporters <- lapply(categorical_vars, function(cat) {
 
 prop_overreporters
 ```
-
-
 
 
 
